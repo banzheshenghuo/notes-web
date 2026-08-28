@@ -1,5 +1,5 @@
 export function fmtTime(s: string): string {
-  // 'YYYY-MM-DD HH:mm:ss' -> '今天 14:05' / '8/28 14:05'
+  // 'YYYY-MM-DD HH:mm:ss' -> '14:05'（今天）/ '8/28 14:05'
   const d = new Date(s.replace(' ', 'T'));
   if (isNaN(d.getTime())) return s;
   const now = new Date();
@@ -12,11 +12,4 @@ export function fmtTime(s: string): string {
 export const TYPE_LABEL: Record<string, string> = {
   idea: '想法',
   note: '随手记',
-  reading: '读书',
-};
-
-export const TYPE_DOT: Record<string, string> = {
-  idea: 'bg-stone-400',
-  note: 'bg-blue-400',
-  reading: 'bg-amber-400',
 };

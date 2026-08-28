@@ -1,56 +1,90 @@
 import { useMemo, useState } from 'react';
-import Composer from './components/Composer';
+import Composer, { ReadingDraft } from './components/Composer';
 import NoteCard from './components/NoteCard';
-import { Note, NoteType, loadNotes, addNote, updateNote, deleteNote, getTypePref, setTypePref } from './lib/storage';
+import {
+  NoteType, TimelineItem,
+  loadTimeline, addNote, updateNote, deleteNote,
+  addReading, updateReading, deleteReading,
+  getTypePref, setTypePref, lastBook, listBooks,
+} from './lib/storage';
 
 export default function App() {
-  const [notes, setNotes] = useState<Note[]>(loadNotes);
+  const [timeline, setTimeline] = useState<TimelineItem[]>(loadTimeline);
+  const [mode, setMode] = useState<'quick' | 'reading'>(getTypePref);
   const [draft, setDraft] = useState('');
-  const [type, setType] = useState<NoteType>(getTypePref);
+  const [type, setType] = useState<NoteType>('idea');
+  const [readingDraft, setReadingDraft] = useState<ReadingDraft>({ book: lastBook(), excerpt: '', thought: '' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const refresh = () => setNotes(loadNotes());
+  const books = useMemo(() => listBooks(), [timeline]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return notes;
-    return notes.filter(n => n.content.toLowerCase().includes(q));
-  }, [notes, query]);
+  const refresh = () => setTimeline(loadTimeline());
 
   const submit = () => {
-    const content = draft.trim();
-    if (!content) return;
     if (editingId) {
-      updateNote(editingId, content, type);
+      const item = timeline.find(x => x.id === editingId);
+      if (item?.kind === 'reading') {
+        updateReading(editingId, readingDraft.book.trim(), readingDraft.excerpt.trim(), readingDraft.thought.trim());
+      } else if (item) {
+        updateNote(editingId, draft.trim(), type);
+      }
       setEditingId(null);
+    } else if (mode === 'quick') {
+      if (!draft.trim()) return;
+      addNote(draft.trim(), type);
+      setDraft('');
+      setTypePref('quick');
     } else {
-      addNote(content, type);
-      setTypePref(type);
+      const r = readingDraft;
+      if (!r.thought.trim() && !r.excerpt.trim()) return;
+      addReading(r.book.trim(), r.excerpt.trim(), r.thought.trim());
+      setReadingDraft({ book: r.book.trim(), excerpt: '', thought: '' });
+      setTypePref('reading');
     }
-    setDraft('');
     refresh();
   };
 
-  const startEdit = (n: Note) => {
-    setEditingId(n.id);
-    setDraft(n.content);
-    setType(n.type);
+  const startEdit = (item: TimelineItem) => {
+    setEditingId(item.id);
+    if (item.kind === 'reading') {
+      setMode('reading');
+      setReadingDraft({ book: item.reading!.book, excerpt: item.reading!.excerpt, thought: item.reading!.thought });
+    } else {
+      setMode('quick');
+      setDraft(item.note!.content);
+      setType(item.note!.type);
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setDraft('');
+    setReadingDraft({ book: lastBook(), excerpt: '', thought: '' });
   };
 
   const remove = (id: string) => {
     if (!confirm('删除这条记录？')) return;
-    deleteNote(id);
+    const item = timeline.find(x => x.id === id);
+    if (item?.kind === 'reading') deleteReading(id);
+    else deleteNote(id);
     if (editingId === id) cancelEdit();
     refresh();
   };
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return timeline;
+    return timeline.filter(item => {
+      if (item.kind === 'reading') {
+        const r = item.reading!;
+        return `${r.book} ${r.excerpt} ${r.thought}`.toLowerCase().includes(q);
+      }
+      return item.note!.content.toLowerCase().includes(q);
+    });
+  }, [timeline, query]);
 
   return (
     <div
@@ -63,10 +97,15 @@ export default function App() {
       {/* 同轴滚动的第一段：输入区 */}
       <div className="w-full max-w-[680px] mx-auto px-4 pt-4 sticky top-0 z-10 bg-[#f5f5f4]/90 backdrop-blur pb-2">
         <Composer
+          mode={mode}
+          onModeChange={setMode}
           value={draft}
           onChange={setDraft}
           type={type}
           onTypeChange={setType}
+          readingDraft={readingDraft}
+          onReadingChange={setReadingDraft}
+          books={books}
           onSubmit={submit}
           editing={editingId !== null}
           onCancelEdit={cancelEdit}
@@ -82,13 +121,13 @@ export default function App() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onBlur={() => !query && setSearchOpen(false)}
-              placeholder="搜索…"
+              placeholder="搜索（含书名）…"
               className="flex-1 bg-stone-200/70 rounded-xl px-3 py-2 text-sm outline-none"
             />
           ) : (
             <>
               <span className="text-xs text-stone-400 flex-1">
-                {filtered.length === notes.length ? `${notes.length} 条` : `${filtered.length} / ${notes.length} 条`}
+                {filtered.length === timeline.length ? `${timeline.length} 条` : `${filtered.length} / ${timeline.length} 条`}
               </span>
               <button
                 onClick={() => setSearchOpen(true)}
@@ -102,16 +141,16 @@ export default function App() {
 
         {filtered.length === 0 ? (
           <div className="text-center text-stone-300 text-sm py-16">
-            {notes.length === 0 ? '记下第一条吧' : '没有匹配的记录'}
+            {timeline.length === 0 ? '记下第一条吧' : '没有匹配的记录'}
           </div>
         ) : (
           <div className="flex flex-col gap-2.5 pb-8">
-            {filtered.map(n => (
+            {filtered.map(item => (
               <NoteCard
-                key={n.id}
-                note={n}
-                onEdit={() => startEdit(n)}
-                onDelete={() => remove(n.id)}
+                key={item.id}
+                item={item}
+                onEdit={() => startEdit(item)}
+                onDelete={() => remove(item.id)}
               />
             ))}
           </div>
