@@ -1,7 +1,6 @@
-// 存储层：localStorage 薄封装，两类记录分库存储。
-// - notes（想法/随手记）：id/content/type/created_at/updated_at，对齐 D1 notes 表
-// - reading（读书笔记）：id/book/excerpt/thought/created_at/updated_at，对齐 D1 reading_notes 表
-// v2 迁移时各自走一次 import 接口即可，无需转换。
+// 存储层：localStorage 薄封装。
+// 三层归属：书架(books) → 读书笔记(reading，含可选 chapter) 与 随手记(notes) 并行。
+// 字段对齐未来 D1：books / notes / reading_notes 三张表，迁移时各走一次 import。
 
 export type NoteType = 'idea' | 'note';
 
@@ -13,16 +12,25 @@ export interface Note {
   updated_at: string;
 }
 
+export interface Book {
+  id: string;
+  title: string;
+  lastChapter: string; // 当前章节上下文（可空）
+  lastOpened: string;  // 书架排序用
+}
+
 export interface ReadingNote {
   id: string;
-  book: string;
+  bookId: string;
+  book: string; // 冗余书名，展示与搜索用
+  chapter: string; // 可空
   excerpt: string;
   thought: string;
   created_at: string;
   updated_at: string;
 }
 
-// 统一时间流条目（展示用）
+// 统一时间流条目（主界面混排展示）
 export interface TimelineItem {
   kind: 'note' | 'reading';
   id: string;
@@ -33,6 +41,8 @@ export interface TimelineItem {
 
 const NOTES_KEY = 'quicknotes.notes';
 const READING_KEY = 'quicknotes.reading';
+const BOOKS_KEY = 'quicknotes.books';
+const CURRENT_BOOK_KEY = 'quicknotes.currentBook';
 const TYPE_PREF_KEY = 'quicknotes.typePref';
 
 function pad(n: number) {
@@ -91,24 +101,119 @@ export function deleteNote(id: string) {
   save(NOTES_KEY, loadNotes().filter(n => n.id !== id));
 }
 
+/* ---------- 书架 ---------- */
+
+export function loadBooks(): Book[] {
+  migrate();
+  return load<Book>(BOOKS_KEY).sort((a, b) => (a.lastOpened < b.lastOpened ? 1 : -1));
+}
+
+export function addBook(title: string): Book {
+  const now = localNow();
+  const book: Book = { id: genId(), title, lastChapter: '', lastOpened: now };
+  save(BOOKS_KEY, [...load<Book>(BOOKS_KEY), book]);
+  return book;
+}
+
+export function touchBook(id: string) {
+  const books = load<Book>(BOOKS_KEY);
+  const b = books.find(x => x.id === id);
+  if (b) {
+    b.lastOpened = localNow();
+    save(BOOKS_KEY, books);
+  }
+}
+
+export function setBookChapter(id: string, chapter: string) {
+  const books = load<Book>(BOOKS_KEY);
+  const b = books.find(x => x.id === id);
+  if (b) {
+    b.lastChapter = chapter;
+    save(BOOKS_KEY, books);
+  }
+}
+
+/** 删书及其全部读书笔记 */
+export function deleteBook(id: string) {
+  save(BOOKS_KEY, load<Book>(BOOKS_KEY).filter(b => b.id !== id));
+  save(READING_KEY, load<ReadingNote>(READING_KEY).filter(r => r.bookId !== id));
+  if (localStorage.getItem(CURRENT_BOOK_KEY) === id) {
+    localStorage.removeItem(CURRENT_BOOK_KEY);
+  }
+}
+
+export function currentBook(): Book | null {
+  migrate();
+  const id = localStorage.getItem(CURRENT_BOOK_KEY);
+  if (!id) return null;
+  return load<Book>(BOOKS_KEY).find(b => b.id === id) || null;
+}
+
+export function setCurrentBook(id: string) {
+  localStorage.setItem(CURRENT_BOOK_KEY, id);
+  touchBook(id);
+}
+
+// 存量迁移：旧版读书笔记只有 book 字符串，补建 books 集合并回填 bookId/chapter
+let migrated = false;
+function migrate() {
+  if (migrated) return;
+  migrated = true;
+  const reading = load<ReadingNote>(READING_KEY);
+  const hasBooks = localStorage.getItem(BOOKS_KEY) !== null;
+  if (hasBooks || reading.length === 0) return;
+  const now = localNow();
+  const books: Book[] = [];
+  const idByTitle = new Map<string, string>();
+  for (const r of reading) {
+    if (!idByTitle.has(r.book)) {
+      const id = genId();
+      idByTitle.set(r.book, id);
+      books.push({ id, title: r.book, lastChapter: '', lastOpened: now });
+    }
+    r.bookId = idByTitle.get(r.book)!;
+    if (r.chapter === undefined) r.chapter = '';
+  }
+  save(BOOKS_KEY, books);
+  save(READING_KEY, reading);
+  localStorage.setItem(CURRENT_BOOK_KEY, books[0].id);
+}
+
 /* ---------- 读书笔记 ---------- */
 
 export function loadReading(): ReadingNote[] {
+  migrate();
   return load<ReadingNote>(READING_KEY);
 }
 
-export function addReading(book: string, excerpt: string, thought: string): ReadingNote {
+export function readingOfBook(bookId: string): ReadingNote[] {
+  return loadReading().filter(r => r.bookId === bookId);
+}
+
+/** 本书用过的章节（chip 候选） */
+export function chaptersUsed(bookId: string): string[] {
+  const seen = new Set<string>();
+  for (const r of readingOfBook(bookId)) {
+    if (r.chapter) seen.add(r.chapter);
+  }
+  return [...seen];
+}
+
+export function addReading(book: Book, chapter: string, excerpt: string, thought: string): ReadingNote {
   const now = localNow();
-  const r: ReadingNote = { id: genId(), book, excerpt, thought, created_at: now, updated_at: now };
+  const r: ReadingNote = {
+    id: genId(), bookId: book.id, book: book.title, chapter, excerpt, thought,
+    created_at: now, updated_at: now,
+  };
   save(READING_KEY, [r, ...loadReading()]);
   return r;
 }
 
-export function updateReading(id: string, book: string, excerpt: string, thought: string): ReadingNote | null {
+export function updateReading(id: string, chapter: string, excerpt: string, thought: string): ReadingNote | null {
   const arr = loadReading();
   const r = arr.find(x => x.id === id);
   if (!r) return null;
-  r.book = book;
+  r.chapter = chapter;
   r.excerpt = excerpt;
   r.thought = thought;
   r.updated_at = localNow();
@@ -118,21 +223,6 @@ export function updateReading(id: string, book: string, excerpt: string, thought
 
 export function deleteReading(id: string) {
   save(READING_KEY, loadReading().filter(r => r.id !== id));
-}
-
-/** 书架：按最近使用排序的历史书名 */
-export function listBooks(): string[] {
-  const seen = new Map<string, string>(); // book -> 最近时间
-  for (const r of loadReading()) {
-    if (r.book && !seen.has(r.book)) seen.set(r.book, r.created_at);
-  }
-  return [...seen.keys()];
-}
-
-/** 最近一本（默认带出） */
-export function lastBook(): string {
-  const books = listBooks();
-  return books.length ? books[0] : '';
 }
 
 /* ---------- 时间流 / 偏好 ---------- */
@@ -145,10 +235,10 @@ export function loadTimeline(): TimelineItem[] {
   return items.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }
 
-export function getTypePref(): 'quick' | 'reading' {
-  return localStorage.getItem(TYPE_PREF_KEY) === 'reading' ? 'reading' : 'quick';
+export function getTypePref(): NoteType {
+  return localStorage.getItem(TYPE_PREF_KEY) === 'note' ? 'note' : 'idea';
 }
 
-export function setTypePref(t: 'quick' | 'reading') {
+export function setTypePref(t: NoteType) {
   localStorage.setItem(TYPE_PREF_KEY, t);
 }

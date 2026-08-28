@@ -1,77 +1,74 @@
 import { useMemo, useState } from 'react';
-import Composer, { ReadingDraft } from './components/Composer';
+import Composer from './components/Composer';
 import NoteCard from './components/NoteCard';
+import BookSpace from './components/BookSpace';
+import Shelf from './components/Shelf';
 import {
-  NoteType, TimelineItem,
+  NoteType, TimelineItem, Book, deleteReading,
   loadTimeline, addNote, updateNote, deleteNote,
-  addReading, updateReading, deleteReading,
-  getTypePref, setTypePref, lastBook, listBooks,
+  addBook, currentBook, setCurrentBook,
+  getTypePref, setTypePref,
 } from './lib/storage';
 
+type View = 'main' | 'book' | 'shelf';
+
 export default function App() {
+  const [view, setView] = useState<View>('main');
   const [timeline, setTimeline] = useState<TimelineItem[]>(loadTimeline);
-  const [mode, setMode] = useState<'quick' | 'reading'>(getTypePref);
   const [draft, setDraft] = useState('');
-  const [type, setType] = useState<NoteType>('idea');
-  const [readingDraft, setReadingDraft] = useState<ReadingDraft>({ book: lastBook(), excerpt: '', thought: '' });
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [type, setType] = useState<NoteType>(getTypePref);
+  const [editingId, setEditingId] = useState<string | null>(null); // 随手记编辑
+  const [editReadingId, setEditReadingId] = useState<string | null>(null); // 读书笔记编辑（跳书空间）
+  const [book, setBook] = useState<Book | null>(() => currentBook());
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const books = useMemo(() => listBooks(), [timeline]);
+  const refresh = () => {
+    setTimeline(loadTimeline());
+    setBook(currentBook());
+  };
 
-  const refresh = () => setTimeline(loadTimeline());
-
-  const submit = () => {
+  const submitQuick = () => {
+    const content = draft.trim();
+    if (!content) return;
     if (editingId) {
-      const item = timeline.find(x => x.id === editingId);
-      if (item?.kind === 'reading') {
-        updateReading(editingId, readingDraft.book.trim(), readingDraft.excerpt.trim(), readingDraft.thought.trim());
-      } else if (item) {
-        updateNote(editingId, draft.trim(), type);
-      }
+      updateNote(editingId, content, type);
       setEditingId(null);
-    } else if (mode === 'quick') {
-      if (!draft.trim()) return;
-      addNote(draft.trim(), type);
-      setDraft('');
-      setTypePref('quick');
     } else {
-      const r = readingDraft;
-      if (!r.thought.trim() && !r.excerpt.trim()) return;
-      addReading(r.book.trim(), r.excerpt.trim(), r.thought.trim());
-      setReadingDraft({ book: r.book.trim(), excerpt: '', thought: '' });
-      setTypePref('reading');
+      addNote(content, type);
+      setTypePref(type);
     }
+    setDraft('');
     refresh();
   };
 
   const startEdit = (item: TimelineItem) => {
-    setEditingId(item.id);
     if (item.kind === 'reading') {
-      setMode('reading');
-      setReadingDraft({ book: item.reading!.book, excerpt: item.reading!.excerpt, thought: item.reading!.thought });
+      setEditReadingId(item.id);
+      setBook(currentBook());
+      setView('book');
     } else {
-      setMode('quick');
+      setEditingId(item.id);
       setDraft(item.note!.content);
       setType(item.note!.type);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setDraft('');
-    setReadingDraft({ book: lastBook(), excerpt: '', thought: '' });
-  };
-
   const remove = (id: string) => {
     if (!confirm('删除这条记录？')) return;
     const item = timeline.find(x => x.id === id);
-    if (item?.kind === 'reading') deleteReading(id);
-    else deleteNote(id);
-    if (editingId === id) cancelEdit();
-    refresh();
+    if (item?.kind === 'reading') {
+      deleteReading(id);
+      refresh();
+    } else {
+      deleteNote(id);
+      if (editingId === id) {
+        setEditingId(null);
+        setDraft('');
+      }
+      refresh();
+    }
   };
 
   const filtered = useMemo(() => {
@@ -80,12 +77,49 @@ export default function App() {
     return timeline.filter(item => {
       if (item.kind === 'reading') {
         const r = item.reading!;
-        return `${r.book} ${r.excerpt} ${r.thought}`.toLowerCase().includes(q);
+        return `${r.book} ${r.chapter} ${r.excerpt} ${r.thought}`.toLowerCase().includes(q);
       }
       return item.note!.content.toLowerCase().includes(q);
     });
   }, [timeline, query]);
 
+  const selectBook = (id: string) => {
+    setCurrentBook(id);
+    const b = currentBook();
+    setBook(b);
+    setView('book');
+  };
+
+  if (view === 'shelf') {
+    return (
+      <Shelf
+        currentId={book?.id ?? null}
+        onBack={() => setView('main')}
+        onSelect={selectBook}
+        onAdd={t => {
+          const b = addBook(t);
+          setCurrentBook(b.id);
+          setBook(b);
+          refresh();
+        }}
+        onChanged={refresh}
+      />
+    );
+  }
+
+  if (view === 'book' && book) {
+    return (
+      <BookSpace
+        book={book}
+        onBack={() => setView('main')}
+        editId={editReadingId}
+        onDoneEdit={() => setEditReadingId(null)}
+        onChanged={refresh}
+      />
+    );
+  }
+
+  // 主视图：随手记输入 + 正在读横条 + 混排时间流
   return (
     <div
       className="min-h-full flex flex-col"
@@ -94,25 +128,34 @@ export default function App() {
         paddingBottom: 'calc(48px + env(safe-area-inset-bottom))',
       }}
     >
-      {/* 同轴滚动的第一段：输入区 */}
       <div className="w-full max-w-[680px] mx-auto px-4 pt-4 sticky top-0 z-10 bg-[#f5f5f4]/90 backdrop-blur pb-2">
         <Composer
-          mode={mode}
-          onModeChange={setMode}
           value={draft}
           onChange={setDraft}
           type={type}
           onTypeChange={setType}
-          readingDraft={readingDraft}
-          onReadingChange={setReadingDraft}
-          books={books}
-          onSubmit={submit}
+          onSubmit={submitQuick}
           editing={editingId !== null}
-          onCancelEdit={cancelEdit}
+          onCancelEdit={() => { setEditingId(null); setDraft(''); }}
         />
+        {/* 正在读横条：进入书的空间 / 书架 */}
+        <button
+          onClick={() => book ? setView('book') : setView('shelf')}
+          className="w-full mt-2 bg-white/80 rounded-xl px-4 py-2.5 flex items-center gap-2 shadow-sm active:bg-white"
+        >
+          <span className="text-sm">{book ? `📖 正在读《${book.title}》` : '📖 选择一本在读的书'}</span>
+          {book?.lastChapter && <span className="text-xs text-amber-600 truncate">{book.lastChapter}</span>}
+          <span className="flex-1" />
+          <span
+            onClick={e => { e.stopPropagation(); setView('shelf'); }}
+            className="text-xs text-stone-400 px-2 py-1"
+          >
+            书架
+          </span>
+          <span className="text-stone-300 text-sm">›</span>
+        </button>
       </div>
 
-      {/* 第二段：时间流 */}
       <div className="w-full max-w-[680px] mx-auto px-4 flex-1">
         <div className="flex items-center gap-2 py-3">
           {searchOpen ? (
@@ -121,7 +164,7 @@ export default function App() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onBlur={() => !query && setSearchOpen(false)}
-              placeholder="搜索（含书名）…"
+              placeholder="搜索（含书名/章节）…"
               className="flex-1 bg-stone-200/70 rounded-xl px-3 py-2 text-sm outline-none"
             />
           ) : (

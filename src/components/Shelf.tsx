@@ -1,0 +1,103 @@
+import { useState } from 'react';
+import { Book, loadBooks, loadReading, deleteBook } from '../lib/storage';
+import { fmtTime } from '../lib/format';
+
+interface Props {
+  currentId: string | null;
+  onBack: () => void;
+  onSelect: (id: string) => void;
+  onAdd: (title: string) => void;
+  onChanged: () => void;
+}
+
+export default function Shelf({ currentId, onBack, onSelect, onAdd, onChanged }: Props) {
+  const [books, setBooks] = useState<Book[]>(loadBooks);
+  const [title, setTitle] = useState('');
+
+  const refresh = () => setBooks(loadBooks());
+
+  const countOf = (id: string) => loadReading().filter(r => r.bookId === id).length;
+
+  const submit = () => {
+    const t = title.trim();
+    if (!t) return;
+    onAdd(t);
+    setTitle('');
+    refresh();
+  };
+
+  return (
+    <div
+      className="min-h-full flex flex-col"
+      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
+    >
+      <div className="sticky top-0 z-10 bg-[#f5f5f4]/90 backdrop-blur">
+        <div className="w-full max-w-[680px] mx-auto px-4 py-3 flex items-center gap-2">
+          <button onClick={onBack} className="text-stone-500 text-lg active:text-stone-800 px-1 -ml-1">
+            ‹
+          </button>
+          <span className="font-medium">书架</span>
+        </div>
+      </div>
+
+      <div className="w-full max-w-[680px] mx-auto px-4">
+        {/* 添加新书 */}
+        <div className="flex gap-2 mb-4">
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            placeholder="书名，如《学会提问》"
+            className="flex-1 bg-white rounded-xl px-3 py-2.5 text-sm outline-none shadow-sm"
+          />
+          <button
+            onClick={submit}
+            disabled={!title.trim()}
+            className="text-sm bg-stone-800 text-white px-4 rounded-xl active:opacity-70 disabled:opacity-30"
+          >
+            加书
+          </button>
+        </div>
+
+        {books.length === 0 ? (
+          <div className="text-center text-stone-300 text-sm py-14">书架还是空的</div>
+        ) : (
+          <div className="flex flex-col gap-2.5 pb-8">
+            {books.map(b => (
+              <div key={b.id} className="group relative bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3">
+                <button
+                  onClick={() => onSelect(b.id)}
+                  className="flex-1 flex items-center gap-3 text-left"
+                >
+                  <span className="text-2xl">📖</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-medium truncate">《{b.title}》</span>
+                    <span className="block text-xs text-stone-400 mt-0.5">
+                      {countOf(b.id)} 条{b.lastChapter ? ` · ${b.lastChapter}` : ''} · {fmtTime(b.lastOpened)}
+                    </span>
+                  </span>
+                  {b.id === currentId && (
+                    <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full shrink-0">在读</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    const n = countOf(b.id);
+                    if (confirm(`删除《${b.title}》${n ? `及其 ${n} 条笔记` : ''}？`)) {
+                      deleteBook(b.id);
+                      refresh();
+                      onChanged();
+                    }
+                  }}
+                  className="text-xs text-stone-300 hover:text-red-500 px-2 py-1 shrink-0"
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

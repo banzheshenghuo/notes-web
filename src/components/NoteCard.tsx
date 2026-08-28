@@ -50,7 +50,12 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
       >
         <div className="flex items-center gap-2 mb-1.5 text-xs text-stone-400">
           {isReading ? (
-            <span className="text-amber-700">📖 {item.reading!.book || '未命名'}</span>
+            <>
+              <span className="text-amber-700 truncate">📖 {item.reading!.book || '未命名'}</span>
+              {item.reading!.chapter && (
+                <span className="text-amber-600/70 bg-amber-100/60 px-1.5 py-0.5 rounded shrink-0">{item.reading!.chapter}</span>
+              )}
+            </>
           ) : (
             <>
               <span className={`w-2 h-2 rounded-full ${item.note!.type === 'idea' ? 'bg-stone-400' : 'bg-blue-400'}`} />
