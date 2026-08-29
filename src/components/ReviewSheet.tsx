@@ -1,19 +1,20 @@
 import { useState } from 'react';
-import { HalfDay, WorkReview, projectsUsed, todayKey, nowHalfDay } from '../lib/storage';
+import { HalfDay, WorkReview, todayKey, nowHalfDay } from '../lib/storage';
 
 interface Props {
   init?: WorkReview | null; // 编辑时传入
+  projects: string[]; // 用过的项目/主题（datalist 候选，App 数据源传入）
   onClose: () => void;
   onSave: (v: { date: string; period: HalfDay; project: string; did: string; output: string }) => void;
 }
 
-export default function ReviewSheet({ init, onClose, onSave }: Props) {
+export default function ReviewSheet({ init, projects, onClose, onSave }: Props) {
   const [date, setDate] = useState(init?.date ?? todayKey());
   const [period, setPeriod] = useState<HalfDay>(init?.period ?? nowHalfDay());
   const [project, setProject] = useState(init?.project ?? '');
   const [did, setDid] = useState(init?.did ?? '');
   const [output, setOutput] = useState(init?.output ?? '');
-  const used = projectsUsed();
+  const used = projects;
 
   const submit = () => {
     if (!did.trim()) return;

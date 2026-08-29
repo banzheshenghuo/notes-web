@@ -1,29 +1,46 @@
 import { useState } from 'react';
-import { Book, loadBooks, loadReading, deleteBook } from '../lib/storage';
+import { Book, ReadingNote, deleteBook } from '../lib/storage';
 import { fmtTime } from '../lib/format';
 
 interface Props {
+  books: Book[];
+  reading: ReadingNote[]; // 计算每本书的笔记数
   currentId: string | null;
   onBack: () => void;
   onSelect: (id: string) => void;
-  onAdd: (title: string) => void;
+  onAdd: (title: string) => Promise<void>;
   onChanged: () => void;
 }
 
-export default function Shelf({ currentId, onBack, onSelect, onAdd, onChanged }: Props) {
-  const [books, setBooks] = useState<Book[]>(loadBooks);
+export default function Shelf({ books, reading, currentId, onBack, onSelect, onAdd, onChanged }: Props) {
   const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const refresh = () => setBooks(loadBooks());
+  const countOf = (id: string) => reading.filter(r => r.bookId === id).length;
 
-  const countOf = (id: string) => loadReading().filter(r => r.bookId === id).length;
-
-  const submit = () => {
+  const submit = async () => {
     const t = title.trim();
-    if (!t) return;
-    onAdd(t);
-    setTitle('');
-    refresh();
+    if (!t || busy) return;
+    setBusy(true);
+    try {
+      await onAdd(t);
+      setTitle('');
+    } catch (e) {
+      console.error('add book failed', e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (b: Book) => {
+    const n = countOf(b.id);
+    if (!confirm(`删除《${b.title}》${n ? `及其 ${n} 条笔记` : ''}？`)) return;
+    try {
+      await deleteBook(b.id);
+      onChanged();
+    } catch (e) {
+      console.error('delete book failed', e);
+    }
   };
 
   return (
@@ -49,7 +66,7 @@ export default function Shelf({ currentId, onBack, onSelect, onAdd, onChanged }:
           />
           <button
             onClick={submit}
-            disabled={!title.trim()}
+            disabled={!title.trim() || busy}
             className="text-sm bg-stone-800 text-white px-4 rounded-xl active:opacity-70 disabled:opacity-30"
           >
             加书
@@ -82,14 +99,7 @@ export default function Shelf({ currentId, onBack, onSelect, onAdd, onChanged }:
                     )}
                   </button>
                   <button
-                    onClick={() => {
-                      const n = countOf(b.id);
-                      if (confirm(`删除《${b.title}》${n ? `及其 ${n} 条笔记` : ''}？`)) {
-                        deleteBook(b.id);
-                        refresh();
-                        onChanged();
-                      }
-                    }}
+                    onClick={() => remove(b)}
                     className="text-xs text-stone-300 hover:text-red-500 px-2 py-1 shrink-0"
                   >
                     删除

@@ -1,31 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Book, ReadingNote, addReading, updateReading, readingOfBook, chaptersUsed, setBookChapter, deleteReading } from '../lib/storage';
+import { Book, ReadingNote, addReading, updateReading, deleteReading, updateBook } from '../lib/storage';
 import NoteCard from './NoteCard';
 import { TimelineItem } from '../lib/storage';
 
 interface Props {
   book: Book;
+  reading: ReadingNote[]; // 本书笔记（App 统一数据源过滤后传入）
   onBack: () => void;
   editId?: string | null; // 从主时间流跳入编辑的读书笔记
   onDoneEdit: () => void;
-  onChanged: () => void; // 通知 App 刷新时间流
+  onChanged: () => void; // 通知 App 刷新数据
 }
 
-export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged }: Props) {
-  const [notes, setNotes] = useState<ReadingNote[]>(() => readingOfBook(book.id));
+export default function BookSpace({ book, reading, onBack, editId, onDoneEdit, onChanged }: Props) {
   const [chapter, setChapter] = useState(book.lastChapter);
   const [excerpt, setExcerpt] = useState('');
   const [thought, setThought] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [chapterEditing, setChapterEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const chapterInput = useRef<HTMLInputElement>(null);
-
-  const refresh = () => setNotes(readingOfBook(book.id));
 
   // 从主时间流跳入编辑
   useEffect(() => {
     if (!editId) return;
-    const n = notes.find(x => x.id === editId);
+    const n = reading.find(x => x.id === editId);
     if (n) {
       setEditing(n.id);
       setExcerpt(n.excerpt);
@@ -40,20 +39,27 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
     if (chapterEditing) chapterInput.current?.focus();
   }, [chapterEditing]);
 
-  const submit = () => {
+  const submit = async () => {
+    if (busy) return;
     if (!excerpt.trim() && !thought.trim()) return;
-    if (editing) {
-      updateReading(editing, chapter.trim(), excerpt.trim(), thought.trim());
-      setEditing(null);
-      setExcerpt('');
-      setThought('');
-    } else {
-      addReading(book, chapter.trim(), excerpt.trim(), thought.trim());
-      setExcerpt('');
-      setThought('');
+    setBusy(true);
+    try {
+      if (editing) {
+        await updateReading(editing, chapter.trim(), excerpt.trim(), thought.trim());
+        setEditing(null);
+        setExcerpt('');
+        setThought('');
+      } else {
+        await addReading(book, chapter.trim(), excerpt.trim(), thought.trim());
+        setExcerpt('');
+        setThought('');
+      }
+      onChanged();
+    } catch (e) {
+      console.error('save reading failed', e);
+    } finally {
+      setBusy(false);
     }
-    refresh();
-    onChanged();
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -70,16 +76,21 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
     setChapter(n.chapter);
   };
 
-  const commitChapter = (v: string) => {
+  const commitChapter = async (v: string) => {
     setChapter(v);
-    setBookChapter(book.id, v);
     setChapterEditing(false);
+    try {
+      await updateBook(book.id, { lastChapter: v });
+      onChanged();
+    } catch (e) {
+      console.error('update chapter failed', e);
+    }
   };
 
   // 按章节分组：有章节的按组内最新排序，未分章节垫底
   const groups = useMemo(() => {
     const map = new Map<string, ReadingNote[]>();
-    for (const n of notes) {
+    for (const n of reading) {
       const key = n.chapter || '';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(n);
@@ -90,9 +101,12 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
       const la = a[1][0].created_at, lb = b[1][0].created_at;
       return la < lb ? 1 : -1;
     });
-  }, [notes]);
+  }, [reading]);
 
-  const usedChapters = useMemo(() => chaptersUsed(book.id), [notes]);
+  const usedChapters = useMemo(
+    () => [...new Set(reading.map(n => n.chapter).filter(Boolean))],
+    [reading],
+  );
 
   const toCard = (n: ReadingNote): TimelineItem => ({
     kind: 'reading', id: n.id, created_at: n.created_at, reading: n,
@@ -171,7 +185,7 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
           <div className="flex justify-end mt-2">
             <button
               onClick={submit}
-              disabled={!excerpt.trim() && !thought.trim()}
+              disabled={busy || (!excerpt.trim() && !thought.trim())}
               className="text-sm bg-amber-600 text-white px-4 py-2 rounded-xl active:opacity-70 disabled:opacity-30"
             >
               记下
@@ -184,7 +198,7 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
           className="pt-4 flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar"
           style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
         >
-          {notes.length === 0 ? (
+          {reading.length === 0 ? (
             <div className="text-center text-stone-300 text-sm py-14">还没有这本书的笔记</div>
           ) : (
             groups.map(([ch, items]) => (
@@ -202,9 +216,9 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
                         onEdit={() => startEdit(n)}
                         onDelete={() => {
                           if (confirm('删除这条读书笔记？')) {
-                            deleteReading(n.id);
-                            refresh();
-                            onChanged();
+                            deleteReading(n.id)
+                              .then(onChanged)
+                              .catch(e => console.error('delete reading failed', e));
                           }
                         }}
                       />

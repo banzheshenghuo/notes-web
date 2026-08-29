@@ -1,6 +1,8 @@
-// 存储层：localStorage 薄封装。
-// 四类归属：书架(books) → 读书笔记(reading，含可选 chapter)；随手记(notes)；工作复盘(work，天/半天颗粒)。
-// 字段对齐未来 D1：books / notes / reading_notes / work_reviews 四张表，迁移时各走一次 import。
+// 数据层：云端版（apiServer 的 /notes 接口）。
+// 函数语义与 localStorage 时代一一对应，但全部异步。
+// 本地仅保留：登录 token（lib/api.ts）、迁移标记、当前书 ID 偏好。
+// 四类数据对齐 D1 表：quick_notes / books / reading_notes / work_reviews。
+import { api } from './api';
 
 export type NoteType = 'idea' | 'note';
 export type HalfDay = 'am' | 'pm';
@@ -8,7 +10,7 @@ export type HalfDay = 'am' | 'pm';
 export interface Note {
   id: string;
   content: string;
-  type: NoteType;
+  type: NoteType; // 存量兼容，UI 已不区分
   created_at: string; // 'YYYY-MM-DD HH:mm:ss'
   updated_at: string;
 }
@@ -53,203 +55,35 @@ export interface TimelineItem {
   work?: WorkReview;
 }
 
-const NOTES_KEY = 'quicknotes.notes';
-const READING_KEY = 'quicknotes.reading';
-const BOOKS_KEY = 'quicknotes.books';
-const CURRENT_BOOK_KEY = 'quicknotes.currentBook';
-const WORK_KEY = 'quicknotes.work';
+export interface NotesData {
+  notes: Note[];
+  books: Book[];
+  reading: ReadingNote[];
+  work: WorkReview[];
+}
+
+export function buildTimeline(d: NotesData): TimelineItem[] {
+  return [
+    ...d.notes.map(note => ({ kind: 'note' as const, id: note.id, created_at: note.created_at, note })),
+    ...d.reading.map(reading => ({ kind: 'reading' as const, id: reading.id, created_at: reading.created_at, reading })),
+    ...d.work.map(work => ({ kind: 'work' as const, id: work.id, created_at: work.created_at, work })),
+  ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+/* ---------- 客户端工具 ---------- */
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
 }
 
-function localNow(): string {
+export function localNow(): string {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function genId(): string {
+export function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
-function load<T>(key: string): T[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? (arr as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(key: string, arr: unknown[]) {
-  localStorage.setItem(key, JSON.stringify(arr));
-}
-
-/* ---------- 随手记（单一类型，type 字段仅为存量兼容保留） ---------- */
-
-export function loadNotes(): Note[] {
-  return load<Note>(NOTES_KEY);
-}
-
-export function addNote(content: string): Note {
-  const now = localNow();
-  const note: Note = { id: genId(), content, type: 'idea', created_at: now, updated_at: now };
-  save(NOTES_KEY, [note, ...loadNotes()]);
-  return note;
-}
-
-export function updateNote(id: string, content: string): Note | null {
-  const notes = loadNotes();
-  const n = notes.find(x => x.id === id);
-  if (!n) return null;
-  n.content = content;
-  n.updated_at = localNow();
-  save(NOTES_KEY, notes);
-  return n;
-}
-
-export function deleteNote(id: string) {
-  save(NOTES_KEY, loadNotes().filter(n => n.id !== id));
-}
-
-/* ---------- 书架 ---------- */
-
-export function loadBooks(): Book[] {
-  migrate();
-  return load<Book>(BOOKS_KEY).sort((a, b) => (a.lastOpened < b.lastOpened ? 1 : -1));
-}
-
-export function addBook(title: string): Book {
-  const now = localNow();
-  const book: Book = { id: genId(), title, lastChapter: '', lastOpened: now };
-  save(BOOKS_KEY, [...load<Book>(BOOKS_KEY), book]);
-  return book;
-}
-
-export function touchBook(id: string) {
-  const books = load<Book>(BOOKS_KEY);
-  const b = books.find(x => x.id === id);
-  if (b) {
-    b.lastOpened = localNow();
-    save(BOOKS_KEY, books);
-  }
-}
-
-export function setBookChapter(id: string, chapter: string) {
-  const books = load<Book>(BOOKS_KEY);
-  const b = books.find(x => x.id === id);
-  if (b) {
-    b.lastChapter = chapter;
-    save(BOOKS_KEY, books);
-  }
-}
-
-/** 删书及其全部读书笔记 */
-export function deleteBook(id: string) {
-  save(BOOKS_KEY, load<Book>(BOOKS_KEY).filter(b => b.id !== id));
-  save(READING_KEY, load<ReadingNote>(READING_KEY).filter(r => r.bookId !== id));
-  if (localStorage.getItem(CURRENT_BOOK_KEY) === id) {
-    localStorage.removeItem(CURRENT_BOOK_KEY);
-  }
-}
-
-export function currentBook(): Book | null {
-  migrate();
-  const id = localStorage.getItem(CURRENT_BOOK_KEY);
-  if (!id) return null;
-  return load<Book>(BOOKS_KEY).find(b => b.id === id) || null;
-}
-
-export function setCurrentBook(id: string) {
-  localStorage.setItem(CURRENT_BOOK_KEY, id);
-  touchBook(id);
-}
-
-// 存量迁移：旧版读书笔记只有 book 字符串，补建 books 集合并回填 bookId/chapter
-let migrated = false;
-function migrate() {
-  if (migrated) return;
-  migrated = true;
-  const reading = load<ReadingNote>(READING_KEY);
-  const hasBooks = localStorage.getItem(BOOKS_KEY) !== null;
-  if (hasBooks || reading.length === 0) return;
-  const now = localNow();
-  const books: Book[] = [];
-  const idByTitle = new Map<string, string>();
-  for (const r of reading) {
-    if (!idByTitle.has(r.book)) {
-      const id = genId();
-      idByTitle.set(r.book, id);
-      books.push({ id, title: r.book, lastChapter: '', lastOpened: now });
-    }
-    r.bookId = idByTitle.get(r.book)!;
-    if (r.chapter === undefined) r.chapter = '';
-  }
-  save(BOOKS_KEY, books);
-  save(READING_KEY, reading);
-  localStorage.setItem(CURRENT_BOOK_KEY, books[0].id);
-}
-
-/* ---------- 读书笔记 ---------- */
-
-export function loadReading(): ReadingNote[] {
-  migrate();
-  return load<ReadingNote>(READING_KEY);
-}
-
-export function readingOfBook(bookId: string): ReadingNote[] {
-  return loadReading().filter(r => r.bookId === bookId);
-}
-
-/** 本书用过的章节（chip 候选） */
-export function chaptersUsed(bookId: string): string[] {
-  const seen = new Set<string>();
-  for (const r of readingOfBook(bookId)) {
-    if (r.chapter) seen.add(r.chapter);
-  }
-  return [...seen];
-}
-
-export function addReading(book: Book, chapter: string, excerpt: string, thought: string): ReadingNote {
-  const now = localNow();
-  const r: ReadingNote = {
-    id: genId(), bookId: book.id, book: book.title, chapter, excerpt, thought,
-    created_at: now, updated_at: now,
-  };
-  save(READING_KEY, [r, ...loadReading()]);
-  return r;
-}
-
-export function updateReading(id: string, chapter: string, excerpt: string, thought: string): ReadingNote | null {
-  const arr = loadReading();
-  const r = arr.find(x => x.id === id);
-  if (!r) return null;
-  r.chapter = chapter;
-  r.excerpt = excerpt;
-  r.thought = thought;
-  r.updated_at = localNow();
-  save(READING_KEY, arr);
-  return r;
-}
-
-export function deleteReading(id: string) {
-  save(READING_KEY, loadReading().filter(r => r.id !== id));
-}
-
-/* ---------- 时间流 ---------- */
-
-export function loadTimeline(): TimelineItem[] {
-  const items: TimelineItem[] = [
-    ...loadNotes().map(note => ({ kind: 'note' as const, id: note.id, created_at: note.created_at, note })),
-    ...loadReading().map(reading => ({ kind: 'reading' as const, id: reading.id, created_at: reading.created_at, reading })),
-    ...loadWork().map(work => ({ kind: 'work' as const, id: work.id, created_at: work.created_at, work })),
-  ];
-  return items.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-}
-
-/* ---------- 工作复盘 ---------- */
 
 export function todayKey(): string {
   const d = new Date();
@@ -260,40 +94,147 @@ export function nowHalfDay(): HalfDay {
   return new Date().getHours() < 12 ? 'am' : 'pm';
 }
 
-export function loadWork(): WorkReview[] {
-  return load<WorkReview>(WORK_KEY);
+/* ---------- 全量拉取 ---------- */
+
+export async function fetchAll(): Promise<NotesData> {
+  return api<NotesData>('/notes/all');
 }
 
-export function addWorkReview(date: string, period: HalfDay, project: string, did: string, output: string): WorkReview {
+/* ---------- 随手记 ---------- */
+
+export async function addNote(content: string): Promise<Note> {
   const now = localNow();
-  const w: WorkReview = { id: genId(), date, period, project, did, output, created_at: now, updated_at: now };
-  save(WORK_KEY, [w, ...loadWork()]);
-  return w;
+  return api<Note>('/notes/notes', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), content, type: 'idea', created_at: now, updated_at: now }),
+  });
 }
 
-export function updateWorkReview(id: string, date: string, period: HalfDay, project: string, did: string, output: string): WorkReview | null {
-  const arr = loadWork();
-  const w = arr.find(x => x.id === id);
-  if (!w) return null;
-  w.date = date;
-  w.period = period;
-  w.project = project;
-  w.did = did;
-  w.output = output;
-  w.updated_at = localNow();
-  save(WORK_KEY, arr);
-  return w;
+export async function updateNote(id: string, content: string): Promise<void> {
+  await api(`/notes/notes/${id}`, { method: 'PUT', body: JSON.stringify({ content, updated_at: localNow() }) });
 }
 
-export function deleteWorkReview(id: string) {
-  save(WORK_KEY, loadWork().filter(w => w.id !== id));
+export async function deleteNote(id: string): Promise<void> {
+  await api(`/notes/notes/${id}`, { method: 'DELETE' });
 }
 
-/** 用过的项目/主题（datalist 候选） */
-export function projectsUsed(): string[] {
-  const seen = new Set<string>();
-  for (const w of loadWork()) {
-    if (w.project) seen.add(w.project);
+/* ---------- 书架 ---------- */
+
+export async function addBook(title: string): Promise<Book> {
+  return api<Book>('/notes/books', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), title, lastOpened: localNow() }),
+  });
+}
+
+/** 局部更新：title / lastChapter / lastOpened 任意组合 */
+export async function updateBook(id: string, patch: { title?: string; lastChapter?: string; lastOpened?: string }): Promise<void> {
+  await api(`/notes/books/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+}
+
+/** 删书及其全部读书笔记（服务端级联） */
+export async function deleteBook(id: string): Promise<void> {
+  await api(`/notes/books/${id}`, { method: 'DELETE' });
+}
+
+/* ---------- 当前书（本地偏好，不入库） ---------- */
+
+const CURRENT_BOOK_KEY = 'quicknotes.currentBook';
+
+export function currentBookId(): string | null {
+  try {
+    return localStorage.getItem(CURRENT_BOOK_KEY);
+  } catch {
+    return null;
   }
-  return [...seen];
+}
+
+export function setCurrentBookId(id: string) {
+  try {
+    localStorage.setItem(CURRENT_BOOK_KEY, id);
+  } catch {}
+}
+
+/* ---------- 读书笔记 ---------- */
+
+export async function addReading(book: Book, chapter: string, excerpt: string, thought: string): Promise<void> {
+  const now = localNow();
+  await api('/notes/reading', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), bookId: book.id, book: book.title, chapter, excerpt, thought, created_at: now, updated_at: now }),
+  });
+}
+
+export async function updateReading(id: string, chapter: string, excerpt: string, thought: string): Promise<void> {
+  await api(`/notes/reading/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ chapter, excerpt, thought, updated_at: localNow() }),
+  });
+}
+
+export async function deleteReading(id: string): Promise<void> {
+  await api(`/notes/reading/${id}`, { method: 'DELETE' });
+}
+
+/* ---------- 工作复盘 ---------- */
+
+export async function addWorkReview(date: string, period: HalfDay, project: string, did: string, output: string): Promise<void> {
+  const now = localNow();
+  await api('/notes/work', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), date, period, project, did, output, created_at: now, updated_at: now }),
+  });
+}
+
+export async function updateWorkReview(id: string, date: string, period: HalfDay, project: string, did: string, output: string): Promise<void> {
+  await api(`/notes/work/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ date, period, project, did, output, updated_at: localNow() }),
+  });
+}
+
+export async function deleteWorkReview(id: string): Promise<void> {
+  await api(`/notes/work/${id}`, { method: 'DELETE' });
+}
+
+/* ---------- 存量迁移：localStorage → 云端（登录后执行一次） ---------- */
+
+const MIGRATED_KEY = 'quicknotes.migrated';
+
+function loadLocal<T>(key: string): T[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? (arr as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 幂等（本地标记 + 服务端 upsert）；旧数据保留在本地不删除 */
+export async function migrateLocalToCloud(): Promise<{ imported: number; skipped: number } | null> {
+  try {
+    if (localStorage.getItem(MIGRATED_KEY) === '1') return null;
+  } catch {
+    return null;
+  }
+  const payload = {
+    notes: loadLocal<Note>('quicknotes.notes'),
+    books: loadLocal<Book>('quicknotes.books'),
+    reading: loadLocal<ReadingNote>('quicknotes.reading'),
+    work: loadLocal<WorkReview>('quicknotes.work'),
+  };
+  let result: { imported: number; skipped: number } | null = null;
+  const total = payload.notes.length + payload.books.length + payload.reading.length + payload.work.length;
+  if (total > 0) {
+    result = await api<{ imported: number; skipped: number }>('/notes/import', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  try {
+    localStorage.setItem(MIGRATED_KEY, '1');
+  } catch {}
+  return result;
 }

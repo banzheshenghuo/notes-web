@@ -1,80 +1,114 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Composer from './components/Composer';
 import NoteCard from './components/NoteCard';
 import BookSpace from './components/BookSpace';
 import Shelf from './components/Shelf';
 import ReviewSheet from './components/ReviewSheet';
 import {
-  TimelineItem, Book, WorkReview,
-  deleteReading, deleteWorkReview, deleteNote,
-  loadTimeline, addNote, updateNote,
-  addBook, currentBook, setCurrentBook,
+  TimelineItem, WorkReview, NotesData, buildTimeline,
+  fetchAll, migrateLocalToCloud, localNow,
+  addNote, updateNote, deleteNote, deleteReading, deleteWorkReview,
+  addBook, updateBook,
+  currentBookId, setCurrentBookId,
   addWorkReview, updateWorkReview,
 } from './lib/storage';
 
 type View = 'main' | 'book' | 'shelf';
 
+const EMPTY: NotesData = { notes: [], books: [], reading: [], work: [] };
+
 export default function App() {
   const [view, setView] = useState<View>('main');
-  const [timeline, setTimeline] = useState<TimelineItem[]>(loadTimeline);
+  const [data, setData] = useState<NotesData>(EMPTY);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null); // 随手记编辑
   const [editReadingId, setEditReadingId] = useState<string | null>(null); // 读书笔记编辑（跳书空间）
-  const [book, setBook] = useState<Book | null>(() => currentBook());
+  const [bookId, setBookId] = useState<string | null>(currentBookId);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false); // 工作复盘抽屉
   const [reviewEdit, setReviewEdit] = useState<WorkReview | null>(null);
 
-  const refresh = () => {
-    setTimeline(loadTimeline());
-    setBook(currentBook());
+  const book = useMemo(() => data.books.find(b => b.id === bookId) ?? null, [data.books, bookId]);
+
+  const refresh = async () => {
+    try {
+      setData(await fetchAll());
+      setLoadErr(false);
+    } catch (e) {
+      console.error('load failed', e);
+      setLoadErr(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const submitQuick = () => {
+  // 登录后首载：一次性迁移旧 localStorage 数据 → 全量拉取云端
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await migrateLocalToCloud();
+        if (r) console.log('localStorage 存量已迁移', r);
+      } catch (e) {
+        console.error('migrate failed', e);
+      }
+      await refresh();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const timeline = useMemo(() => buildTimeline(data), [data]);
+
+  const submitQuick = async () => {
     const content = draft.trim();
     if (!content) return;
-    if (editingId) {
-      updateNote(editingId, content);
-      setEditingId(null);
-    } else {
-      addNote(content);
+    try {
+      if (editingId) {
+        await updateNote(editingId, content);
+        setEditingId(null);
+      } else {
+        await addNote(content);
+      }
+      setDraft('');
+      await refresh();
+    } catch (e) {
+      console.error('save failed', e);
     }
-    setDraft('');
-    refresh();
   };
 
   const startEdit = (item: TimelineItem) => {
     if (item.kind === 'reading') {
       setEditReadingId(item.id);
-      setBook(currentBook());
       setView('book');
     } else if (item.kind === 'work') {
       setReviewEdit(item.work!);
       setReviewOpen(true);
-      return;
     } else {
       setEditingId(item.id);
       setDraft(item.note!.content);
     }
   };
 
-  const remove = (id: string) => {
+  const remove = async (id: string) => {
     if (!confirm('删除这条记录？')) return;
     const item = timeline.find(x => x.id === id);
-    if (item?.kind === 'reading') {
-      deleteReading(id);
-      refresh();
-    } else if (item?.kind === 'work') {
-      deleteWorkReview(id);
-      refresh();
-    } else {
-      deleteNote(id);
-      if (editingId === id) {
-        setEditingId(null);
-        setDraft('');
+    try {
+      if (item?.kind === 'reading') {
+        await deleteReading(id);
+      } else if (item?.kind === 'work') {
+        await deleteWorkReview(id);
+      } else {
+        await deleteNote(id);
+        if (editingId === id) {
+          setEditingId(null);
+          setDraft('');
+        }
       }
-      refresh();
+      await refresh();
+    } catch (e) {
+      console.error('delete failed', e);
     }
   };
 
@@ -94,24 +128,45 @@ export default function App() {
     });
   }, [timeline, query]);
 
-  const selectBook = (id: string) => {
-    setCurrentBook(id);
-    const b = currentBook();
-    setBook(b);
+  const selectBook = async (id: string) => {
+    setCurrentBookId(id);
+    setBookId(id);
     setView('book');
+    try {
+      await updateBook(id, { lastOpened: localNow() });
+      await refresh();
+    } catch (e) {
+      console.error('touch book failed', e);
+    }
   };
+
+  if (loading) {
+    return <div className="h-dvh flex items-center justify-center text-sm text-stone-300">加载中…</div>;
+  }
+  if (loadErr && timeline.length === 0) {
+    return (
+      <div className="h-dvh flex flex-col items-center justify-center gap-4 text-sm text-stone-400">
+        加载失败
+        <button onClick={refresh} className="bg-stone-800 text-white px-4 py-2 rounded-xl active:opacity-70">
+          重试
+        </button>
+      </div>
+    );
+  }
 
   if (view === 'shelf') {
     return (
       <Shelf
-        currentId={book?.id ?? null}
+        books={data.books}
+        reading={data.reading}
+        currentId={bookId}
         onBack={() => setView('main')}
         onSelect={selectBook}
-        onAdd={t => {
-          const b = addBook(t);
-          setCurrentBook(b.id);
-          setBook(b);
-          refresh();
+        onAdd={async t => {
+          const b = await addBook(t);
+          setCurrentBookId(b.id);
+          setBookId(b.id);
+          await refresh();
         }}
         onChanged={refresh}
       />
@@ -122,6 +177,7 @@ export default function App() {
     return (
       <BookSpace
         book={book}
+        reading={data.reading.filter(r => r.bookId === book.id)}
         onBack={() => setView('main')}
         editId={editReadingId}
         onDoneEdit={() => setEditReadingId(null)}
@@ -222,12 +278,17 @@ export default function App() {
       {reviewOpen && (
         <ReviewSheet
           init={reviewEdit}
+          projects={[...new Set(data.work.map(w => w.project).filter(Boolean))]}
           onClose={() => setReviewOpen(false)}
-          onSave={v => {
-            if (reviewEdit) updateWorkReview(reviewEdit.id, v.date, v.period, v.project, v.did, v.output);
-            else addWorkReview(v.date, v.period, v.project, v.did, v.output);
-            setReviewOpen(false);
-            refresh();
+          onSave={async v => {
+            try {
+              if (reviewEdit) await updateWorkReview(reviewEdit.id, v.date, v.period, v.project, v.did, v.output);
+              else await addWorkReview(v.date, v.period, v.project, v.did, v.output);
+              setReviewOpen(false);
+              await refresh();
+            } catch (e) {
+              console.error('save review failed', e);
+            }
           }}
         />
       )}
