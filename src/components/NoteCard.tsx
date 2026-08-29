@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { TimelineItem } from '../lib/storage';
-import { fmtTime, TYPE_LABEL } from '../lib/format';
+import { fmtTime, fmtDayPeriod } from '../lib/format';
 
 interface Props {
   item: TimelineItem;
@@ -32,6 +32,8 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
   };
 
   const isReading = item.kind === 'reading';
+  const isWork = item.kind === 'work';
+  const w = item.work;
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
@@ -46,7 +48,7 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         style={{ transform: `translateX(${dx}px)`, transition: 'transform .15s' }}
-        className={`group relative rounded-2xl shadow-sm p-4 ${isReading ? 'bg-amber-50' : 'bg-white'}`}
+        className={`group relative rounded-2xl shadow-sm p-4 ${isReading ? 'bg-amber-50' : isWork ? 'bg-blue-50/70' : 'bg-white'}`}
       >
         <div className="flex items-center gap-2 mb-1.5 text-xs text-stone-400">
           {isReading ? (
@@ -56,11 +58,15 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
                 <span className="text-amber-600/70 bg-amber-100/60 px-1.5 py-0.5 rounded shrink-0">{item.reading!.chapter}</span>
               )}
             </>
-          ) : (
+          ) : isWork ? (
             <>
-              <span className={`w-2 h-2 rounded-full ${item.note!.type === 'idea' ? 'bg-stone-400' : 'bg-blue-400'}`} />
-              <span>{TYPE_LABEL[item.note!.type]}</span>
+              <span className="text-stone-600 shrink-0">📋 {fmtDayPeriod(w!.date, w!.period)}</span>
+              {w!.project && (
+                <span className="text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded truncate max-w-[45%]">{w!.project}</span>
+              )}
             </>
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-stone-300" />
           )}
           <div className="flex-1" />
           <span>{fmtTime(item.created_at)}</span>
@@ -75,6 +81,13 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
             )}
             {item.reading!.thought && (
               <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{item.reading!.thought}</div>
+            )}
+          </>
+        ) : isWork ? (
+          <>
+            <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{w!.did}</div>
+            {w!.output && (
+              <div className="text-[13px] leading-relaxed text-stone-500 mt-1.5 whitespace-pre-wrap break-words">→ {w!.output}</div>
             )}
           </>
         ) : (

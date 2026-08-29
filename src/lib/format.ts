@@ -9,7 +9,15 @@ export function fmtTime(s: string): string {
   return `${y}${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
 
-export const TYPE_LABEL: Record<string, string> = {
-  idea: '想法',
-  note: '随手记',
-};
+const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 复盘卡片时段标识：'2026-08-29' + pm -> '今天·下午' / '8/28 周五·下午' */
+export function fmtDayPeriod(date: string, period: 'am' | 'pm'): string {
+  const d = new Date(`${date}T00:00:00`);
+  if (isNaN(d.getTime())) return date;
+  const now = new Date();
+  const day = d.toDateString() === now.toDateString()
+    ? '今天'
+    : `${d.getMonth() + 1}/${d.getDate()} 周${WEEK[d.getDay()]}`;
+  return `${day}·${period === 'am' ? '上午' : '下午'}`;
+}

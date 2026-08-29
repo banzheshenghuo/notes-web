@@ -1,20 +1,14 @@
 import { useEffect, useRef } from 'react';
-import { NoteType } from '../lib/storage';
-import { TYPE_LABEL } from '../lib/format';
 
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  type: NoteType;
-  onTypeChange: (t: NoteType) => void;
   onSubmit: () => void;
   editing: boolean;
   onCancelEdit: () => void;
 }
 
-const TYPES: NoteType[] = ['idea', 'note'];
-
-export default function Composer({ value, onChange, type, onTypeChange, onSubmit, editing, onCancelEdit }: Props) {
+export default function Composer({ value, onChange, onSubmit, editing, onCancelEdit }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -58,17 +52,6 @@ export default function Composer({ value, onChange, type, onTypeChange, onSubmit
           </>
         ) : (
           <>
-            {TYPES.map(t => (
-              <button
-                key={t}
-                onClick={() => onTypeChange(t)}
-                className={`text-[13px] px-3 py-1.5 rounded-lg transition-colors ${
-                  type === t ? 'bg-stone-200 text-stone-800' : 'text-stone-400 active:bg-stone-100'
-                }`}
-              >
-                {TYPE_LABEL[t]}
-              </button>
-            ))}
             <div className="flex-1" />
             <button
               onClick={onSubmit}
