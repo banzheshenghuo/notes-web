@@ -4,7 +4,8 @@
  * 不会随请求携带，认证完全依赖 localStorage 里的 Bearer token。
  * API_KEY 是应用级标识（公开属性，不是机密），用户身份由登录 token 保证。
  */
-const API_BASE = 'https://banzheshenghuo.com/api/c/v1';
+// 默认走 www：裸域的 DNS 记录已清理，apiServer 仅保留 www 路由
+const API_BASE = 'https://www.banzheshenghuo.com/api/c/v1';
 const API_KEY = '5eb1e0a20cbeacce97ebe6f5eac67ea631a44b2844cf0364';
 
 export class ApiError extends Error {
