@@ -68,7 +68,6 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
     setExcerpt(n.excerpt);
     setThought(n.thought);
     setChapter(n.chapter);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const commitChapter = (v: string) => {
@@ -100,12 +99,9 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
   });
 
   return (
-    <div
-      className="min-h-full flex flex-col"
-      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
-    >
+    <div className="h-dvh flex flex-col overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       {/* 书空间头部：返回 + 书名 + 章节chip */}
-      <div className="sticky top-0 z-10 bg-[#f5f5f4]/90 backdrop-blur">
+      <div className="shrink-0">
         <div className="w-full max-w-[680px] mx-auto px-4 py-3 flex items-center gap-2">
           <button onClick={onBack} className="text-stone-500 text-lg active:text-stone-800 px-1 -ml-1">
             ‹
@@ -140,9 +136,9 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
         </div>
       </div>
 
-      <div className="w-full max-w-[680px] mx-auto px-4">
+      <div className="w-full max-w-[680px] mx-auto px-4 flex-1 min-h-0 flex flex-col">
         {/* 输入区：书与章节都是上下文，表单只有摘录和想法 */}
-        <div className="bg-amber-50 rounded-2xl shadow-sm p-4">
+        <div className="bg-amber-50 rounded-2xl shadow-sm p-4 shrink-0">
           {editing && (
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-amber-600">修改中</span>
@@ -184,7 +180,10 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
         </div>
 
         {/* 本书笔记，按章节分组 */}
-        <div className="pt-4 pb-8">
+        <div
+          className="pt-4 flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
+        >
           {notes.length === 0 ? (
             <div className="text-center text-stone-300 text-sm py-14">还没有这本书的笔记</div>
           ) : (

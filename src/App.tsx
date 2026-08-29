@@ -57,7 +57,6 @@ export default function App() {
       setEditingId(item.id);
       setDraft(item.note!.content);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const remove = (id: string) => {
@@ -131,16 +130,10 @@ export default function App() {
     );
   }
 
-  // 主视图：随手记输入 + 正在读横条 + 复盘入口 + 混排时间流
+  // 主视图：头部固定，仅时间流列表滚动
   return (
-    <div
-      className="min-h-full flex flex-col"
-      style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'calc(48px + env(safe-area-inset-bottom))',
-      }}
-    >
-      <div className="w-full max-w-[680px] mx-auto px-4 pt-4 sticky top-0 z-10 bg-[#f5f5f4]/90 backdrop-blur pb-2">
+    <div className="h-dvh flex flex-col overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="w-full max-w-[680px] mx-auto px-4 pt-4 pb-2 shrink-0">
         <Composer
           value={draft}
           onChange={setDraft}
@@ -177,8 +170,8 @@ export default function App() {
         </div>
       </div>
 
-      <div className="w-full max-w-[680px] mx-auto px-4 flex-1">
-        <div className="flex items-center gap-2 py-3">
+      <div className="w-full max-w-[680px] mx-auto px-4 flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center gap-2 py-3 shrink-0">
           {searchOpen ? (
             <input
               autoFocus
@@ -203,22 +196,27 @@ export default function App() {
           )}
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="text-center text-stone-300 text-sm py-16">
-            {timeline.length === 0 ? '记下第一条吧' : '没有匹配的记录'}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2.5 pb-8">
-            {filtered.map(item => (
-              <NoteCard
-                key={item.id}
-                item={item}
-                onEdit={() => startEdit(item)}
-                onDelete={() => remove(item.id)}
-              />
-            ))}
-          </div>
-        )}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
+        >
+          {filtered.length === 0 ? (
+            <div className="text-center text-stone-300 text-sm py-16">
+              {timeline.length === 0 ? '记下第一条吧' : '没有匹配的记录'}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5 pb-8">
+              {filtered.map(item => (
+                <NoteCard
+                  key={item.id}
+                  item={item}
+                  onEdit={() => startEdit(item)}
+                  onDelete={() => remove(item.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {reviewOpen && (
