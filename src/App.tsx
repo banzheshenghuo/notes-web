@@ -15,7 +15,7 @@ import {
 
 type View = 'main' | 'book' | 'shelf';
 
-const EMPTY: NotesData = { notes: [], books: [], reading: [], work: [] };
+const EMPTY: NotesData = { notes: [], books: [], reading: [], work: [], chapters: [] };
 
 export default function App() {
   const [view, setView] = useState<View>('main');
@@ -178,6 +178,7 @@ export default function App() {
       <BookSpace
         book={book}
         reading={data.reading.filter(r => r.bookId === book.id)}
+        chapters={data.chapters.filter(c => c.bookId === book.id)}
         onBack={() => setView('main')}
         editId={editReadingId}
         onDoneEdit={() => setEditReadingId(null)}

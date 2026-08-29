@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Book, ReadingNote, addReading, updateReading, deleteReading, updateBook } from '../lib/storage';
+import { Book, Chapter, ReadingNote, addReading, updateReading, deleteReading, updateBook } from '../lib/storage';
 import NoteCard from './NoteCard';
 import { TimelineItem } from '../lib/storage';
 
 interface Props {
   book: Book;
   reading: ReadingNote[]; // 本书笔记（App 统一数据源过滤后传入）
+  chapters: Chapter[];   // 本书目录（workbench 录入，按 seq 排序后使用）
   onBack: () => void;
   editId?: string | null; // 从主时间流跳入编辑的读书笔记
   onDoneEdit: () => void;
   onChanged: () => void; // 通知 App 刷新数据
 }
 
-export default function BookSpace({ book, reading, onBack, editId, onDoneEdit, onChanged }: Props) {
+export default function BookSpace({ book, reading, chapters, onBack, editId, onDoneEdit, onChanged }: Props) {
   const [chapter, setChapter] = useState(book.lastChapter);
   const [excerpt, setExcerpt] = useState('');
   const [thought, setThought] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
-  const [chapterEditing, setChapterEditing] = useState(false);
+  const [chapterEditing, setChapterEditing] = useState(false); // 手动输入模式（无目录/兜底）
+  const [pickerOpen, setPickerOpen] = useState(false);         // 目录点选抽屉
   const [busy, setBusy] = useState(false);
   const chapterInput = useRef<HTMLInputElement>(null);
+
+  const toc = useMemo(() => [...chapters].sort((a, b) => a.seq - b.seq), [chapters]);
 
   // 从主时间流跳入编辑
   useEffect(() => {
@@ -87,7 +91,7 @@ export default function BookSpace({ book, reading, onBack, editId, onDoneEdit, o
     }
   };
 
-  // 按章节分组：有章节的按组内最新排序，未分章节垫底
+  // 按章节分组：目录中的章节按目录顺序排最前；手打的非目录章节按时间倒序居中；未分章节垫底
   const groups = useMemo(() => {
     const map = new Map<string, ReadingNote[]>();
     for (const n of reading) {
@@ -95,13 +99,14 @@ export default function BookSpace({ book, reading, onBack, editId, onDoneEdit, o
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(n);
     }
-    return [...map.entries()].sort((a, b) => {
-      if (!a[0]) return 1;
-      if (!b[0]) return -1;
-      const la = a[1][0].created_at, lb = b[1][0].created_at;
-      return la < lb ? 1 : -1;
-    });
-  }, [reading]);
+    const tocTitles = new Set(toc.map(c => c.title));
+    const inToc = toc.filter(c => map.has(c.title)).map(c => [c.title, map.get(c.title)!] as [string, ReadingNote[]]);
+    const handTyped = [...map.entries()]
+      .filter(([k]) => k && !tocTitles.has(k))
+      .sort((a, b) => (a[1][0].created_at < b[1][0].created_at ? 1 : -1));
+    const none = map.has('') ? [['', map.get('')!] as [string, ReadingNote[]]] : [];
+    return [...inToc, ...handTyped, ...none];
+  }, [reading, toc]);
 
   const usedChapters = useMemo(
     () => [...new Set(reading.map(n => n.chapter).filter(Boolean))],
@@ -134,21 +139,67 @@ export default function BookSpace({ book, reading, onBack, editId, onDoneEdit, o
             />
           ) : (
             <button
-              onClick={() => setChapterEditing(true)}
-              className={`text-xs px-2.5 py-1.5 rounded-lg ${
+              onClick={() => {
+                if (toc.length > 0) setPickerOpen(true);
+                else setChapterEditing(true);
+              }}
+              className={`text-xs px-2.5 py-1.5 rounded-lg max-w-[45%] truncate ${
                 chapter ? 'bg-amber-100 text-amber-700' : 'bg-stone-200/70 text-stone-400'
               }`}
             >
-              {chapter || '+ 章节'}
+              {chapter || (toc.length > 0 ? '☰ 选章节' : '+ 章节')}
             </button>
           )}
           <datalist id="chapter-list">
-            {usedChapters.map(c => (
+            {[...toc.map(c => c.title), ...usedChapters].map(c => (
               <option key={c} value={c} />
             ))}
           </datalist>
         </div>
       </div>
+
+      {/* 目录点选抽屉：workbench 录入的章节一触即达 */}
+      {pickerOpen && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end">
+          <button
+            aria-label="关闭"
+            className="absolute inset-0 bg-stone-900/30"
+            onClick={() => setPickerOpen(false)}
+          />
+          <div
+            className="relative bg-white rounded-t-2xl px-4 pt-3 pb-2 shadow-lg"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">选择章节</span>
+              <button
+                onClick={() => { setPickerOpen(false); setChapterEditing(true); }}
+                className="text-xs text-stone-400 px-2 py-1"
+              >
+                手动输入
+              </button>
+            </div>
+            <div className="max-h-[45vh] overflow-y-auto overscroll-contain no-scrollbar">
+              {toc.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    commitChapter(c.title);
+                  }}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm active:bg-stone-100 flex items-center gap-2 ${
+                    chapter === c.title ? 'text-amber-700' : 'text-stone-700'
+                  }`}
+                >
+                  <span className="text-xs text-stone-300 tabular-nums w-6 text-right shrink-0">{c.seq + 1}</span>
+                  <span className="flex-1 min-w-0 truncate">{c.title}</span>
+                  {chapter === c.title && <span className="text-xs">✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="w-full max-w-[680px] mx-auto px-4 flex-1 min-h-0 flex flex-col">
         {/* 输入区：书与章节都是上下文，表单只有摘录和想法 */}

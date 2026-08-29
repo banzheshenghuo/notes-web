@@ -22,6 +22,14 @@ export interface Book {
   lastOpened: string;  // 书架排序用
 }
 
+// 章节目录：PC 后台（workbench）录入，C 端只读点选
+export interface Chapter {
+  id: string;
+  bookId: string;
+  seq: number;    // 目录顺序
+  title: string;
+}
+
 export interface ReadingNote {
   id: string;
   bookId: string;
@@ -60,6 +68,7 @@ export interface NotesData {
   books: Book[];
   reading: ReadingNote[];
   work: WorkReview[];
+  chapters: Chapter[];
 }
 
 export function buildTimeline(d: NotesData): TimelineItem[] {
