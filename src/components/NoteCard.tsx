@@ -10,7 +10,7 @@ interface Props {
 
 const REVEAL = 140; // 左侧操作区宽度：编辑 + 删除
 
-// 右滑卡片露出左侧「编辑 / 删除」；垂直方向让给页面滚动
+// 左滑卡片露出右侧「删除 / 编辑」；垂直方向让给页面滚动
 export default function NoteCard({ item, onEdit, onDelete }: Props) {
   const [dx, setDx] = useState(0);
   const startX = useRef(0);
@@ -33,11 +33,11 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
     if (!locked.current && Math.abs(ddy) > Math.abs(ddx)) locked.current = true;
     if (locked.current) return;
     if (Math.abs(ddx) > 6) suppressClick.current = true;
-    setDx(Math.max(Math.min(ddx, REVEAL), 0));
+    setDx(Math.max(Math.min(ddx, 0), -REVEAL));
   };
 
   const onPointerUp = () => {
-    setDx(prev => (prev > REVEAL / 2 ? REVEAL : 0));
+    setDx(prev => (prev < -REVEAL / 2 ? -REVEAL : 0));
   };
 
   const onBodyClick = () => {
@@ -54,8 +54,8 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
-      {/* 左侧操作区：删除在最左，编辑贴近卡片（轻扫先露出安全的编辑） */}
-      <div className="absolute inset-y-0 left-0 flex">
+      {/* 右侧操作区：删除贴近卡片，编辑在最外缘 */}
+      <div className="absolute inset-y-0 right-0 flex">
         <button
           onClick={() => { setDx(0); onDelete(); }}
           className="w-[70px] bg-red-500 text-white text-sm flex items-center justify-center"
