@@ -199,21 +199,19 @@ export default function App() {
           onCancelEdit={() => { setEditingId(null); setDraft(''); }}
         />
         <div className="mt-2 flex flex-col gap-1.5">
-          {/* 正在读横条：进入书的空间 / 书架 */}
+          {/* 正在读横条：进入书的空间 / 书架。只展示书名（可换行），章节信息不在首页展示 */}
           <button
             onClick={() => book ? setView('book') : setView('shelf')}
             className="w-full bg-white/80 rounded-xl px-4 py-2.5 flex items-center gap-2 shadow-sm active:bg-white"
           >
-            <span className="text-sm">{book ? `📖 正在读《${book.title}》` : '📖 选择一本在读的书'}</span>
-            {book?.lastChapter && <span className="text-xs text-amber-600 truncate">{book.lastChapter}</span>}
-            <span className="flex-1" />
+            <span className="text-sm flex-1 min-w-0 text-left">{book ? `📖 正在读《${book.title}》` : '📖 选择一本在读的书'}</span>
             <span
               onClick={e => { e.stopPropagation(); setView('shelf'); }}
-              className="text-xs text-stone-400 px-2 py-1"
+              className="text-xs text-stone-400 px-2 py-1 shrink-0"
             >
               书架
             </span>
-            <span className="text-stone-300 text-sm">›</span>
+            <span className="text-stone-300 text-sm shrink-0">›</span>
           </button>
           {/* 工作复盘入口 */}
           <button
