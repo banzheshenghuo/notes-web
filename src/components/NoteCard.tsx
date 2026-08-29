@@ -77,7 +77,7 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
         onClick={onBodyClick}
         style={{ transform: `translateX(${dx}px)`, transition: 'transform .15s' }}
         className={`group relative rounded-2xl shadow-sm p-4 touch-pan-y select-none ${
-          isReading ? 'bg-amber-50' : isWork ? 'bg-blue-50/70' : 'bg-white'
+          isReading ? 'bg-amber-50' : isWork ? 'bg-blue-50' : 'bg-white'
         }`}
       >
         <div className="flex items-center gap-2 mb-1.5 text-xs text-stone-400">
