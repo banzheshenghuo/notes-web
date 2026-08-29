@@ -82,12 +82,8 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
       >
         <div className="flex items-center gap-2 mb-1.5 text-xs text-stone-400">
           {isReading ? (
-            <>
-              <span className="text-amber-700 truncate">📖 {item.reading!.book || '未命名'}</span>
-              {item.reading!.chapter && (
-                <span className="text-amber-600/70 bg-amber-100/60 px-1.5 py-0.5 rounded shrink-0">{item.reading!.chapter}</span>
-              )}
-            </>
+            // 书名独占剩余宽度（可截断），章节另起一行，避免长章节把书名挤没
+            <span className="flex-1 min-w-0 text-amber-700 truncate">📖 {item.reading!.book || '未命名'}</span>
           ) : isWork ? (
             <>
               <span className="text-stone-600 shrink-0">📋 {fmtDayPeriod(w!.date, w!.period)}</span>
@@ -104,13 +100,20 @@ export default function NoteCard({ item, onEdit, onDelete }: Props) {
 
         {isReading ? (
           <>
+            {item.reading!.chapter && (
+              <div className="mb-2">
+                <span className="inline-block max-w-full text-amber-600/80 bg-amber-100/60 px-1.5 py-0.5 rounded text-xs truncate align-bottom">
+                  {item.reading!.chapter}
+                </span>
+              </div>
+            )}
             {item.reading!.excerpt && (
-              <div className="text-[14px] leading-relaxed text-stone-500 whitespace-pre-wrap break-words border-l-2 border-amber-300 pl-3 mb-2">
+              <div className={`text-[13.5px] leading-relaxed text-stone-500 whitespace-pre-wrap break-words border-l-2 border-amber-300/80 pl-3 ${item.reading!.thought ? 'mb-2' : ''}`}>
                 {item.reading!.excerpt}
               </div>
             )}
             {item.reading!.thought && (
-              <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{item.reading!.thought}</div>
+              <div className="text-[15px] font-medium leading-relaxed whitespace-pre-wrap break-words">{item.reading!.thought}</div>
             )}
           </>
         ) : isWork ? (
