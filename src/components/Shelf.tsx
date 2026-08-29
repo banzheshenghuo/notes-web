@@ -57,7 +57,7 @@ export default function Shelf({ currentId, onBack, onSelect, onAdd, onChanged }:
         </div>
 
         <div
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar"
           style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
         >
           {books.length === 0 ? (

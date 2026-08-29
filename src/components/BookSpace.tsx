@@ -181,7 +181,7 @@ export default function BookSpace({ book, onBack, editId, onDoneEdit, onChanged 
 
         {/* 本书笔记，按章节分组 */}
         <div
-          className="pt-4 flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          className="pt-4 flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar"
           style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
         >
           {notes.length === 0 ? (
