@@ -94,9 +94,20 @@ export function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function todayKey(): string {
+/** 本地日期 key，offset 为相对今天的天数（0=今天，-1=昨天） */
+export function dayKey(offset = 0): string {
   const d = new Date();
+  d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function todayKey(): string {
+  return dayKey();
+}
+
+/** 条目归属日期：复盘按业务日期，其余按创建日期（'YYYY-MM-DD'） */
+export function itemDay(item: TimelineItem): string {
+  return item.kind === 'work' ? item.work!.date : item.created_at.slice(0, 10);
 }
 
 export function nowHalfDay(): HalfDay {
@@ -175,10 +186,7 @@ export async function addReading(book: Book, chapter: string, excerpt: string, t
 }
 
 export async function updateReading(id: string, chapter: string, excerpt: string, thought: string): Promise<void> {
-  await api(`/notes/reading/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ chapter, excerpt, thought, updated_at: localNow() }),
-  });
+  await api(`/notes/reading/${id}`, { method: 'PUT', body: JSON.stringify({ chapter, excerpt, thought, updated_at: localNow() }) });
 }
 
 export async function deleteReading(id: string): Promise<void> {
@@ -196,10 +204,7 @@ export async function addWorkReview(date: string, period: HalfDay, project: stri
 }
 
 export async function updateWorkReview(id: string, date: string, period: HalfDay, project: string, did: string, output: string): Promise<void> {
-  await api(`/notes/work/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ date, period, project, did, output, updated_at: localNow() }),
-  });
+  await api(`/notes/work/${id}`, { method: 'PUT', body: JSON.stringify({ date, period, project, did, output, updated_at: localNow() }) });
 }
 
 export async function deleteWorkReview(id: string): Promise<void> {

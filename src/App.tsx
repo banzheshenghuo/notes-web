@@ -6,7 +6,7 @@ import Shelf from './components/Shelf';
 import ReviewSheet from './components/ReviewSheet';
 import {
   TimelineItem, WorkReview, NotesData, buildTimeline,
-  fetchAll, migrateLocalToCloud, localNow,
+  fetchAll, migrateLocalToCloud, localNow, dayKey, itemDay,
   addNote, updateNote, deleteNote, deleteReading, deleteWorkReview,
   addBook, updateBook,
   currentBookId, setCurrentBookId,
@@ -112,9 +112,16 @@ export default function App() {
     }
   };
 
+  // 列表只展示最近 2 天（今天 + 昨天）；更早的记录通过搜索回看
+  const recent = useMemo(() => {
+    const days = new Set([dayKey(), dayKey(-1)]);
+    return timeline.filter(item => days.has(itemDay(item)));
+  }, [timeline]);
+  const olderCount = timeline.length - recent.length;
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return timeline;
+    if (!q) return recent;
     return timeline.filter(item => {
       if (item.kind === 'reading') {
         const r = item.reading!;
@@ -126,7 +133,7 @@ export default function App() {
       }
       return item.note!.content.toLowerCase().includes(q);
     });
-  }, [timeline, query]);
+  }, [timeline, recent, query]);
 
   const selectBook = async (id: string) => {
     setCurrentBookId(id);
@@ -233,13 +240,13 @@ export default function App() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onBlur={() => !query && setSearchOpen(false)}
-              placeholder="搜索（含书名/项目）…"
+              placeholder="搜索全部记录（含书名/项目）…"
               className="flex-1 bg-stone-200/70 rounded-xl px-3 py-2 text-sm outline-none"
             />
           ) : (
             <>
               <span className="text-xs text-stone-400 flex-1">
-                {filtered.length === timeline.length ? `${timeline.length} 条` : `${filtered.length} / ${timeline.length} 条`}
+                最近 2 天 {recent.length} 条{olderCount > 0 ? ` · 更早 ${olderCount} 条` : ''}
               </span>
               <button
                 onClick={() => setSearchOpen(true)}
@@ -256,8 +263,17 @@ export default function App() {
           style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom))' }}
         >
           {filtered.length === 0 ? (
-            <div className="text-center text-stone-300 text-sm py-16">
-              {timeline.length === 0 ? '记下第一条吧' : '没有匹配的记录'}
+            <div className="text-center text-stone-300 text-sm py-16 flex flex-col gap-1">
+              {query.trim() ? (
+                <span>没有匹配的记录</span>
+              ) : timeline.length === 0 ? (
+                <span>记下第一条吧</span>
+              ) : (
+                <>
+                  <span>最近 2 天没有新记录</span>
+                  <span className="text-xs">点「搜索」可回看更早的记录</span>
+                </>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-2.5 pb-8">
