@@ -40,6 +40,15 @@ jobs:
         with:
           path: ./dist
 
+      # 同步部署到 note.banzheshenghuo.com（Cloudflare 静态资产 Worker）。
+      # 需在仓库 Secrets 配置 CLOUDFLARE_API_TOKEN（Cloudflare 后台创建，
+      # 权限：Account - Workers Scripts - Edit）；未配置时自动跳过，不影响 Pages 部署
+      - name: Deploy to note.banzheshenghuo.com
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4 deploy
+
   deploy:
     needs: build
     runs-on: ubuntu-latest

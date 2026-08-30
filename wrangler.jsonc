@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "note",
+  "account_id": "e7fa0331b0736ff098ea2e15e481537e",
+  "compatibility_date": "2025-06-01",
+
+  // 纯静态资产 Worker：托管 Vite 构建产物（随手记 PWA），
+  // SPA 回退由 not_found_handling 处理；无 main 脚本
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+
+  // 自定义域名：wrangler deploy 自动创建 note 的 DNS 记录与证书
+  "routes": [
+    { "pattern": "note.banzheshenghuo.com", "custom_domain": true }
+  ]
+}
