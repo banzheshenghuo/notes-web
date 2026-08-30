@@ -1,7 +1,8 @@
 // 数据层：云端版（apiServer 的 /notes 接口）。
 // 函数语义与 localStorage 时代一一对应，但全部异步。
 // 本地仅保留：登录 token（lib/api.ts）、迁移标记、当前书 ID 偏好。
-// 四类数据对齐 D1 表：quick_notes / books / reading_notes / work_reviews。
+// 数据对齐 D1 表：quick_notes / books / reading_notes / work_reviews / chapters
+//               / todos / daily_items / daily_logs。
 import { api } from './api';
 
 export type NoteType = 'idea' | 'note';
@@ -53,6 +54,33 @@ export interface WorkReview {
   updated_at: string;
 }
 
+// 临时待办：一次性，完成即从清单收起（数据保留在云端，不进时间轴）
+export interface Todo {
+  id: string;
+  title: string;
+  done: boolean;
+  due_at: string;       // 截止 'YYYY-MM-DD HH:mm:ss'（''=无截止；只选日期按当天 23:59:59）
+  completed_at: string; // 完成时刻（''=未完成）
+  created_at: string;
+  updated_at: string;
+}
+
+// 每日打卡习惯定义（如：写复盘 / 记录 / 学英语），定义一次每天重复出现
+export interface DailyItem {
+  id: string;
+  title: string;
+  sort: number; // 展示顺序
+  created_at: string;
+  updated_at: string;
+}
+
+// 打卡完成记录：「(事项, 日期)」粒度，勾选 upsert / 取消 delete；全量留史可算连续天数
+export interface DailyLog {
+  date: string;   // 'YYYY-MM-DD'
+  itemId: string;
+  doneAt: string; // 'YYYY-MM-DD HH:mm:ss'
+}
+
 // 统一时间流条目（主界面混排展示）
 export interface TimelineItem {
   kind: 'note' | 'reading' | 'work';
@@ -69,6 +97,9 @@ export interface NotesData {
   reading: ReadingNote[];
   work: WorkReview[];
   chapters: Chapter[];
+  todos: Todo[];
+  dailyItems: DailyItem[];
+  dailyLogs: DailyLog[];
 }
 
 export function buildTimeline(d: NotesData): TimelineItem[] {
@@ -186,7 +217,10 @@ export async function addReading(book: Book, chapter: string, excerpt: string, t
 }
 
 export async function updateReading(id: string, chapter: string, excerpt: string, thought: string): Promise<void> {
-  await api(`/notes/reading/${id}`, { method: 'PUT', body: JSON.stringify({ chapter, excerpt, thought, updated_at: localNow() }) });
+  await api(`/notes/reading/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ chapter, excerpt, thought, updated_at: localNow() }),
+  });
 }
 
 export async function deleteReading(id: string): Promise<void> {
@@ -204,11 +238,66 @@ export async function addWorkReview(date: string, period: HalfDay, project: stri
 }
 
 export async function updateWorkReview(id: string, date: string, period: HalfDay, project: string, did: string, output: string): Promise<void> {
-  await api(`/notes/work/${id}`, { method: 'PUT', body: JSON.stringify({ date, period, project, did, output, updated_at: localNow() }) });
+  await api(`/notes/work/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ date, period, project, did, output, updated_at: localNow() }),
+  });
 }
 
 export async function deleteWorkReview(id: string): Promise<void> {
   await api(`/notes/work/${id}`, { method: 'DELETE' });
+}
+
+/* ---------- 今日清单：临时待办 ---------- */
+
+export async function addTodo(title: string, dueAt: string): Promise<void> {
+  const now = localNow();
+  await api('/notes/todos', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), title, due_at: dueAt, created_at: now, updated_at: now }),
+  });
+}
+
+/** 局部更新：title / due_at（''=清除截止）/ done / completed_at 任意组合 */
+export async function updateTodo(id: string, patch: { title?: string; due_at?: string; done?: boolean; completed_at?: string }): Promise<void> {
+  await api(`/notes/todos/${id}`, { method: 'PUT', body: JSON.stringify({ ...patch, updated_at: localNow() }) });
+}
+
+export async function deleteTodo(id: string): Promise<void> {
+  await api(`/notes/todos/${id}`, { method: 'DELETE' });
+}
+
+/* ---------- 今日清单：每日打卡 ---------- */
+
+/** 勾选/取消当日打卡（done=true 落一条记录，false 删除该条） */
+export async function toggleDailyLog(date: string, itemId: string, done: boolean): Promise<void> {
+  if (done) {
+    await api('/notes/daily-logs', { method: 'POST', body: JSON.stringify({ date, itemId, doneAt: localNow() }) });
+  } else {
+    await api(`/notes/daily-logs/${date}/${itemId}`, { method: 'DELETE' });
+  }
+}
+
+export async function addDailyItem(title: string, sort: number): Promise<void> {
+  const now = localNow();
+  await api('/notes/daily-items', {
+    method: 'POST',
+    body: JSON.stringify({ id: genId(), title, sort, created_at: now, updated_at: now }),
+  });
+}
+
+export async function updateDailyItem(id: string, title: string): Promise<void> {
+  await api(`/notes/daily-items/${id}`, { method: 'PUT', body: JSON.stringify({ title }) });
+}
+
+/** 删除打卡项（服务端级联删其全部打卡记录） */
+export async function deleteDailyItem(id: string): Promise<void> {
+  await api(`/notes/daily-items/${id}`, { method: 'DELETE' });
+}
+
+/** 重排：ids 数组下标即新顺序 */
+export async function reorderDailyItems(ids: string[]): Promise<void> {
+  await api('/notes/daily-items/reorder', { method: 'PUT', body: JSON.stringify({ ids }) });
 }
 
 /* ---------- 存量迁移：localStorage → 云端（登录后执行一次） ---------- */

@@ -4,18 +4,23 @@ import NoteCard from './components/NoteCard';
 import BookSpace from './components/BookSpace';
 import Shelf from './components/Shelf';
 import ReviewSheet from './components/ReviewSheet';
+import TodayList from './components/TodayList';
+import TodoSheet from './components/TodoSheet';
+import DailyManageSheet from './components/DailyManageSheet';
 import {
-  TimelineItem, WorkReview, NotesData, buildTimeline,
-  fetchAll, migrateLocalToCloud, localNow, dayKey, itemDay,
+  TimelineItem, WorkReview, Todo, NotesData, buildTimeline,
+  fetchAll, migrateLocalToCloud, localNow, dayKey, itemDay, todayKey,
   addNote, updateNote, deleteNote, deleteReading, deleteWorkReview,
   addBook, updateBook,
   currentBookId, setCurrentBookId,
   addWorkReview, updateWorkReview,
+  addTodo, updateTodo, deleteTodo,
+  toggleDailyLog, addDailyItem, updateDailyItem, deleteDailyItem, reorderDailyItems,
 } from './lib/storage';
 
 type View = 'main' | 'book' | 'shelf';
 
-const EMPTY: NotesData = { notes: [], books: [], reading: [], work: [], chapters: [] };
+const EMPTY: NotesData = { notes: [], books: [], reading: [], work: [], chapters: [], todos: [], dailyItems: [], dailyLogs: [] };
 
 export default function App() {
   const [view, setView] = useState<View>('main');
@@ -30,6 +35,9 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false); // 工作复盘抽屉
   const [reviewEdit, setReviewEdit] = useState<WorkReview | null>(null);
+  const [todoOpen, setTodoOpen] = useState(false); // 待办录入抽屉
+  const [todoEdit, setTodoEdit] = useState<Todo | null>(null);
+  const [dailyOpen, setDailyOpen] = useState(false); // 打卡项管理抽屉
 
   const book = useMemo(() => data.books.find(b => b.id === bookId) ?? null, [data.books, bookId]);
 
@@ -60,6 +68,59 @@ export default function App() {
   }, []);
 
   const timeline = useMemo(() => buildTimeline(data), [data]);
+
+  // 今日清单数据：未完成待办 + 按 sort 排序的打卡项
+  const openTodos = useMemo(() => data.todos.filter(t => !t.done), [data.todos]);
+  const dailyItems = useMemo(() => [...data.dailyItems].sort((a, b) => a.sort - b.sort), [data.dailyItems]);
+
+  const saveTodo = async (v: { title: string; due_at: string }) => {
+    try {
+      if (todoEdit) await updateTodo(todoEdit.id, { title: v.title, due_at: v.due_at });
+      else await addTodo(v.title, v.due_at);
+      setTodoOpen(false);
+      await refresh();
+    } catch (e) {
+      console.error('save todo failed', e);
+    }
+  };
+
+  const toggleTodo = async (id: string, done: boolean) => {
+    try {
+      await updateTodo(id, { done, completed_at: done ? localNow() : '' });
+      await refresh();
+    } catch (e) {
+      console.error('toggle todo failed', e);
+    }
+  };
+
+  const removeTodo = async (id: string) => {
+    if (!confirm('删除这条待办？')) return;
+    try {
+      await deleteTodo(id);
+      await refresh();
+    } catch (e) {
+      console.error('delete todo failed', e);
+    }
+  };
+
+  const toggleDaily = async (itemId: string, done: boolean) => {
+    try {
+      await toggleDailyLog(todayKey(), itemId, done);
+      await refresh();
+    } catch (e) {
+      console.error('toggle daily failed', e);
+    }
+  };
+
+  const moveDaily = async (id: string, dir: -1 | 1) => {
+    const ids = dailyItems.map(i => i.id);
+    const i = ids.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await reorderDailyItems(ids);
+    await refresh();
+  };
 
   const submitQuick = async () => {
     const content = draft.trim();
@@ -220,6 +281,18 @@ export default function App() {
             </span>
             <span className="text-stone-300 text-sm shrink-0">›</span>
           </button>
+          {/* 今日清单：每日打卡 + 临时待办混排 */}
+          <TodayList
+            todos={openTodos}
+            dailyItems={dailyItems}
+            dailyLogs={data.dailyLogs}
+            onToggleDaily={toggleDaily}
+            onToggleTodo={toggleTodo}
+            onEditTodo={t => { setTodoEdit(t); setTodoOpen(true); }}
+            onDeleteTodo={removeTodo}
+            onAddTodo={() => { setTodoEdit(null); setTodoOpen(true); }}
+            onManageDaily={() => setDailyOpen(true)}
+          />
           {/* 工作复盘入口 */}
           <button
             onClick={() => { setReviewEdit(null); setReviewOpen(true); }}
@@ -305,6 +378,34 @@ export default function App() {
               console.error('save review failed', e);
             }
           }}
+        />
+      )}
+
+      {todoOpen && (
+        <TodoSheet
+          init={todoEdit}
+          onClose={() => setTodoOpen(false)}
+          onSave={saveTodo}
+        />
+      )}
+
+      {dailyOpen && (
+        <DailyManageSheet
+          items={dailyItems}
+          onClose={() => setDailyOpen(false)}
+          onAdd={async t => {
+            await addDailyItem(t, dailyItems.length);
+            await refresh();
+          }}
+          onDelete={async id => {
+            await deleteDailyItem(id);
+            await refresh();
+          }}
+          onRename={async (id, t) => {
+            await updateDailyItem(id, t);
+            await refresh();
+          }}
+          onMove={moveDaily}
         />
       )}
     </div>
