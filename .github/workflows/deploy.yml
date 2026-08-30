@@ -40,11 +40,16 @@ jobs:
         with:
           path: ./dist
 
+      # secrets 不能直接用在 if 条件里，先转成 step 输出（只输出 true/false，不泄露密钥）
+      - name: Check Cloudflare token
+        id: cf
+        run: echo "enabled=${{ secrets.CLOUDFLARE_API_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
       # 同步部署到 note.banzheshenghuo.com（Cloudflare 静态资产 Worker）。
       # 需在仓库 Secrets 配置 CLOUDFLARE_API_TOKEN（Cloudflare 后台创建，
       # 权限：Account - Workers Scripts - Edit）；未配置时自动跳过，不影响 Pages 部署
       - name: Deploy to note.banzheshenghuo.com
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        if: steps.cf.outputs.enabled == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes wrangler@4 deploy
